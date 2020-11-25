@@ -3,14 +3,16 @@ const path = require('path')
 const fs = require('fs')
 const webpack = require('webpack')
 const serverWebpackConfig = require('./webpack.server.config')
+const clientWebpackConfig = require('./webpack.client.config')
 const devMiddleWare = require('webpack-dev-middleware') // 最新是v4版本的，这里降版本到了3.7.2版本
+const hotMiddleware = require('webpack-hot-middleware')
 
 // 抽离出path
 const resolve = file => path.resolve(__dirname, file)
 
 module.exports = (server, callback) => {
   let ready
-  const onReay = new Promise(r => ready)
+  const onReay = new Promise(r => (ready = r))
 
   // 监视构建 --》 更新Renderer
 
@@ -26,26 +28,27 @@ module.exports = (server, callback) => {
       callback(serverBundle, template, clientManifest)
     }
   }
-
   // 监视构建template --》 调用update  --》 更新renderer
   const templatePath = resolve('../index.template.html')
-  const templateStr = fs.readFileSync(templatePath, 'utf-8')
+  template = fs.readFileSync(templatePath, 'utf-8')
+  update()
   // console.log(templateStr)
   chokidar.watch(templatePath).on('change', () => {
     console.log('wenjiangaibianle..')
+    template = fs.readFileSync(templatePath, 'utf-8')
     update()
   })
 
   // 监视构建serverBundle --》 调用update  --》 更新renderer
   // 需要使用webpack重新构建出vue-ssr-server-bundle.json也就是serverBundle， 然后调用update
 
-  const webpackComplier = webpack(serverWebpackConfig)
+  const webpackServerComplier = webpack(serverWebpackConfig)
   // 使用了webpack-dev-middleware， webpack-dev-middleware也具有监视的作用
-  const serverDevMiddleWare = devMiddleWare(webpackComplier, {
+  const serverDevMiddleWare = devMiddleWare(webpackServerComplier, {
     logLevel: 'silent' //关闭日志输出, 由friendly-errors-webpack-plugin统一管理日志输出
   })
   // 上面的代码根据webpack的配置进行了打包和监视， 那么怎样获取到打包后的结果呢？使用hook钩子
-  webpackComplier.hooks.done.tap('server', () => {
+  webpackServerComplier.hooks.done.tap('server', () => {
     // 拿到webpack打包后的结果, 这读取的是dev-middleware内部的内存系统中的文件
     serverBundle = JSON.parse(
       serverDevMiddleWare.fileSystem.readFileSync(
@@ -53,12 +56,12 @@ module.exports = (server, callback) => {
         'utf-8'
       )
     )
-    console.log(serverBundle, 'asdad')
+    console.log('serverBundle', 'asdad')
     update()
   })
 
   // 未使用webpack-dev-middleware, 使用的是普通的watch方法
-  // webpackComplier.watch({}, (err, stats) => {
+  // webpackServerComplier.watch({}, (err, stats) => {
   //   if (err) throw err // 如果webpack打包出现了内部错误，比如说配置问题及其他内部错误，直接抛出异常
   //   // console.log(stats)
   //   if (stats.hasErrors()) return // 如果我们本身的源代码出现了问题，那么直接return就好，不需要抛出错误
@@ -74,6 +77,40 @@ module.exports = (server, callback) => {
   // 调用webpack的watch方法会自动执行构建，并监视文件的变化进行重新构建
 
   // 监视构建clientManifest --》 调用update  --》 更新renderer
+  // 先处理配置，再编译配置
+  clientWebpackConfig.plugins.push(new webpack.HotModuleReplacementPlugin())
+  clientWebpackConfig.entry.app = [
+    'webpack-hot-middleware/client?quiet=true&reload=true', // 和服务端交互处理热更新一个客户端脚本, 后面的参数quiet是不向控制台输出内容，reload是如果更新的过程卡住了，则强制刷新
+    clientWebpackConfig.entry.app
+  ]
+  clientWebpackConfig.output.filename = '[name].js' // 热更新模式下确保一致的 hash
+
+  const webpackClientComplier = webpack(clientWebpackConfig)
+  // 使用了webpack-dev-middleware， webpack-dev-middleware也具有监视的作用
+  const clientDevMiddleWare = devMiddleWare(webpackClientComplier, {
+    publicPath: clientWebpackConfig.output.publicPath,
+    logLevel: 'silent' //关闭日志输出, 由friendly-errors-webpack-plugin统一管理日志输出
+  })
+  // 上面的代码根据webpack的配置进行了打包和监视， 那么怎样获取到打包后的结果呢？使用hook钩子
+  webpackClientComplier.hooks.done.tap('client', () => {
+    // 拿到webpack打包后的结果, 这读取的是dev-middleware内部的内存系统中的文件
+    clientManifest = JSON.parse(
+      clientDevMiddleWare.fileSystem.readFileSync(
+        resolve('../dist/vue-ssr-client-manifest.json'),
+        'utf-8'
+      )
+    )
+    console.log('clientManifest', 'clientManifest...')
+    update()
+  })
+
+  server.use(
+    hotMiddleware(webpackClientComplier, {
+      log: false // 关闭它本身的日志输出
+    })
+  )
+  // 将 clientDevMiddleware 挂载到 Express 服务中，提供对其内部内存中数据的访问
+  server.use(clientDevMiddleWare)
 
   return onReay
 }
