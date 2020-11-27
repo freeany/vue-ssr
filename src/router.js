@@ -25,6 +25,11 @@ export function createRouter() {
         component: () => import('@/views/about')
       },
       {
+        name: 'Posts',
+        path: '/posts',
+        component: () => import('@/views/Posts')
+      },
+      {
         name: 'Error404',
         path: '*',
         component: () => import('@/views/404')

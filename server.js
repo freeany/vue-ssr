@@ -37,6 +37,8 @@ server.use('/dist', express.static('./dist'))
 const render = async (req, res) => {
   // 这里的html是 createRenderer 中配置的模板 + vue中template解析后的结果, 所以可以直接返回
   // 想要去渲染meta标签, 使用renderToString函数的第二个参数
+  if (req.url === '/favicon.ico') return
+  console.log(req.url)
   try {
     const html = await renderer.renderToString({
       title: 'vue-ssr-d',
@@ -49,7 +51,8 @@ const render = async (req, res) => {
     res.setHeader('Content-Type', 'text/html;charset=utf8')
     res.end(html)
   } catch (err) {
-    return res.status(500).end('server interal is error')
+    console.dir(err)
+    return res.status(500).end('server interal is error 123')
   }
 
   /*

@@ -307,3 +307,41 @@ Status Code: 200 OK (from prefetch cache) // 来自预取缓存
 vue-meta在nuxtjs中的使用
 
 `https://vue-meta.nuxtjs.org/`
+
+
+
+### 数据预取
+
+同构渲染中，在组件的created函数中发送请求，拿到数据，赋值给data，页面渲染数据。页面的显示是可以的，但是此时是客户端渲染，如果要在服务器端拿到数据渲染好页面在返回给客户端怎么做呢？
+
+**如果应用程序依赖于一些异步数据，**那么在开始渲染过程之前，需要先预取和解析好这些数据**。**
+
+在挂载 (mount) 到客户端应用程序之前，需要获取到与服务器端应用程序完全相同的数据 - 否则，客户端应用程序会因为使用与服务器端应用程序不同的状态，然后导致混合失败。**这里混合失败后客户端会进行重新渲染**
+
+所以需要借助到数据预取存储容器或者叫做状态容器。
+
+操作大概步骤：
+
+1. 建立vuex容器实例，获取到数据放到state中，注意：在actions中，必须返回一个promise对象。
+
+2. 在组件中，使用vue-ssr提供的特殊的钩子， 发起actions请求
+
+   ```js
+    // Vue SSR 特殊为服务端渲染提供的一个生命周期钩子函数
+     serverPrefetch () {
+       // 发起 action，返回 Promise
+       return this.getPosts()
+     },
+   ```
+
+3. 在entry-server.js中， 在所有预取钩子(preFetch hook) resolve 后，我们的 store 现在已经填充入渲染应用程序所需的状态。我们将 store.state 赋值给 context.state ,`*context*.state = store.state` 这是渲染器会将状态自动序列化为 `window.__INITIAL_STATE__`，并注入 HTML。
+
+4. 在entry-client.js中， 替换客户端的store
+
+   ```js
+   if (window.__INITIAL_STATE__) {
+     store.replaceState(window.__INITIAL_STATE__)
+   }
+   ```
+
+   这样即保证了我们一开始说的在挂载mount到客户端应用程序之前，需要获取到与服务器应用程序完全相同的数据。混合成功，进行渲染。
